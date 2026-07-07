@@ -433,7 +433,51 @@
     m._hay=[m.name,m.role,m.leadership_title,(m.stack||[]).join(" "),m.ask_me_about,m.expertise,m.bio,
             (m.contribution_types||[]).join(" "),m.contributions_raw,m.local_roots]
             .filter(Boolean).join(" ").toLowerCase();
+    // Separate haystack for the tech-interest dropdown. Only a few members
+    // filled in the structured tech-stack tags on the form, so an exact-tag
+    // filter would hide everyone else. Match the selected category against
+    // each member's tags AND their free-text expertise / ask-me / bio / role
+    // so anyone who mentions a topic is surfaced.
+    m._techHay=[(m.stack||[]).join(" "),m.role,m.ask_me_about,m.expertise,m.bio]
+            .filter(Boolean).join(" ").toLowerCase();
   });
+
+  // A member matches a chosen tech category if the category is one of their
+  // structured tags, OR if any of that category's concept phrases appears in
+  // their profile text. Each facet label maps to a small set of phrases that
+  // reliably signal the topic (so "AI & Machine Learning (Gemini/Vertex AI)"
+  // matches text that says "AI", "machine learning", or "AI/ML", without
+  // requiring the exact vendor names). Any label not listed here falls back to
+  // matching on its cleaned-up first phrase.
+  // Each phrase is matched with word boundaries, so short tokens like "ai" or
+  // "ui" only match the standalone word (or forms like "ai/ml"), never a
+  // substring inside words like "sustainable" or "building".
+  var TECH_CONCEPTS={
+    "AI & Machine Learning (Gemini/Vertex AI)":["ai","ai/ml","machine learning","ml","artificial intelligence","generative ai","llm","gemini","vertex"],
+    "AI Literacy & Ethics":["ai literacy","ethics","ethical","responsible ai","ai ethics"],
+    "AI Literacy & Ethics + EdTech":["ai literacy","ethics","ethical","edtech","education","educational","instructional","responsible ai"],
+    "Android Development":["android","kotlin","jetpack"],
+    "Benchmarking AI Models":["benchmark","benchmarking","ai models","model training"],
+    "Cloud (GCP/Firebase)":["cloud","gcp","google cloud","firebase","kubernetes","terraform"],
+    "DevOps & Infrastructure":["devops","infrastructure","docker","kubernetes","terraform","ci/cd","pipelines"],
+    "UI/UX Design":["ui/ux","ui design","ux design","user experience","user interface","ux","usability"]
+  };
+  // Escape a phrase and wrap it so it only matches as a whole word/token.
+  function phraseRegex(p){
+    var esc=p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp("(^|[^a-z0-9])"+esc+"([^a-z0-9]|$)", "i");
+  }
+  function techMatches(m, category){
+    if(!category) return true;
+    if((m.stack||[]).indexOf(category)!==-1) return true;
+    var hay=" "+(m._techHay||"")+" ";
+    var phrases=TECH_CONCEPTS[category];
+    if(!phrases){
+      var base=category.toLowerCase().split(/[(|/]/)[0].trim();
+      phrases=base?[base]:[];
+    }
+    return phrases.some(function(p){return phraseRegex(p).test(hay);});
+  }
 
   /* ---------- Populate filters ---------- */
   var fStack=document.getElementById("fStack");
@@ -461,7 +505,7 @@
     var shown=0;
     members.forEach(function(m){
       if(q && m._hay.indexOf(q)===-1) return;
-      if(stack && (m.stack||[]).indexOf(stack)===-1) return;
+      if(stack && !techMatches(m, stack)) return;
       if(contrib && (m.contribution_types||[]).indexOf(contrib)===-1) return;
       if(leadersOnly && !m.is_leader) return;
       grid.appendChild(makeCard(m));
